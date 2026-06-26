@@ -162,3 +162,59 @@ module 9gServoVoid()
         translate([ 10.5, 9, 24 ]) color("blue") cube([ 16.2, 30, 9.2 ]);
     }
 }
+
+module KSTX10MiniServo()
+{
+    difference()
+    {
+        union()
+        {
+            color("red") cube([ 30, 10, 30 ]);                             // Main body [width, depth, height]
+            translate([ -3.5, 0, 19 ]) color("red") cube([ 37, 10, 3 ]);   // Mounting ears
+            translate([ 11, 0, 29 ]) color("red") cube([ 13, 10, 7 ]);     // Gearbox
+            translate([ 0, 10, 0 ]) color("green") cube([ 30, 5, 30 ]);    // Extra main body
+            translate([ -3.5, 10, 19 ]) color("green") cube([ 37, 5, 3 ]); // Extra mounting ears
+            translate([ 11, 10, 29 ]) color("green") cube([ 13, 5, 7 ]);   // Extra gearbox
+        }
+        union()
+        {
+            translate([ -1, 0, 8 ]) cube([ 1, 15, 15 ]);
+            translate([ 14.5, 0, 28 ]) cube([ 1, 15, 12 ]);
+            translate([ 30, 0, 8 ]) cube([ 1, 15, 15 ]);
+        }
+    }
+    difference()
+    {
+        union()
+        {
+            color("gray") translate([ 0, 0, -12 ]) cube([ slice_gap_width, 15, 12 ]);
+            color("gray") translate([ 15 - slice_gap_width, 0, -12 ]) cube([ slice_gap_width, 15, 12 ]);
+            color("gray") translate([ 30 - slice_gap_width, 0, -12 ]) cube([ slice_gap_width, 15, 12 ]);
+        }
+        rotate([ -35, 0, 0 ]) color("blue") translate([ -1, 0, -10 ]) cube([ 34, 50, 10 ]);
+    }
+
+    difference()
+    {
+        union()
+        {
+            color("gray") translate([ -3.5, 0, 3 ]) cube([ slice_gap_width, 15, 16 ]);
+            color("gray") translate([ 33.5 - slice_gap_width, 0, 3 ]) cube([ slice_gap_width, 15, 16 ]);
+        }
+        rotate([ -35, 0, 0 ]) color("blue") translate([ -10, -8, 0 ]) cube([ 55, 50, 10 ]);
+    }
+}
+
+module KSTX10MiniServoVoid()
+{
+    translate([ -0.6, -0.6, -0.6 ]) union()
+    {
+        color("blue") translate([ 0, 0, -10 ]) cube([ 31.2, 10, 41 ]);
+        translate([ -3.5, 0, 7 ]) color("blue") cube([ 38.2, 10, 16 ]);
+        translate([ 11, 0, 29 ]) color("blue") cube([ 14.2, 10, 8.2 ]);
+
+        translate([ 0, 10, -10 ]) color("blue") cube([ 31.2, 30, 41 ]);
+        translate([ -3.5, 10, 7 ]) color("blue") cube([ 38.2, 30, 16 ]);
+        translate([ 11, 10, 29 ]) color("blue") cube([ 14.2, 30, 8.2 ]);
+    }
+}

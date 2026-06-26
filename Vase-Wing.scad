@@ -5,26 +5,26 @@
 // https://github.com/guillaumef/openscad-airfoil
 
 // Module for root airfoil polygon
-include <lib/openscad-airfoil/s/s2027.scad>
+include <lib/openscad-airfoil/n/naca2415.scad>
 
-af_vec_path_root = airfoil_S2027_path();
-af_vec_path_mid = airfoil_S2027_path();
-af_vec_path_tip = airfoil_S2027_path();
+af_vec_path_root = airfoil_NACA2415_path();
+af_vec_path_mid = airfoil_NACA2415_path();
+af_vec_path_tip = airfoil_NACA2415_path();
 
 // Wing airfoils
 module RootAirfoilPolygon()
 {
-    airfoil_S2027();
+    airfoil_NACA2415();
 }
 
 module MidAirfoilPolygon()
 {
-    airfoil_S2027();
+    airfoil_NACA2415();
 }
 
 module TipAirfoilPolygon()
 {
-    airfoil_S2027();
+    airfoil_NACA2415();
 }
 
 //*******************END***************************//
@@ -35,17 +35,17 @@ $fa = 5; // 360deg/5($fa) = 60 facets this affects performance and object shooth
 $fs = 1; // Min facet size
 
 slice_ext_width = 0.6;//Used for some of the interfacing and gap width values
-slice_gap_width = 0.01;//This is the gap in the outer skin.(smaller is better but is limited by what your slicer can recognise)
+slice_gap_width = 0.1;//This is the gap in the outer skin.(smaller is better but is limited by what your slicer can recognise)
 
-wing_mode = 2; // 1=trapezoidal wing 2= elliptic wing
+wing_mode = 1; // 1=trapezoidal wing 2= elliptic wing
 
 wing_sections =
     39; // how many sections you would like to break up the wing into more is higher resolution but higher processing
-wing_mm = 300;            // wing length in mm
-wing_root_chord_mm = 150; // Root chord legth in mm
-wing_tip_chord_mm = 50;   // wing tip chord length in mm (Not relevant for elliptic wing)
+wing_mm = 1000;           // wing length in mm
+wing_root_chord_mm = 280; // Root chord legth in mm
+wing_tip_chord_mm = 240;  // wing tip chord length in mm (Not relevant for elliptic wing)
 
-wing_center_line_perc = 25; // Percentage from the leading edge where you would like the wings center line
+wing_center_line_perc = 28; // Percentage from the leading edge where you would like the wings center line
 
 //****************Wing Airfoil settings**********//
 center_airfoil_change_perc = 100; // Where you want to change to the center airfoil 100 is off
@@ -55,17 +55,18 @@ slice_transisions = 0; // This is the number of slices that will be a blend of a
 
 //****************Wing Washout settings**********//
 washout_deg = 2;         // how many degrees of washout you want 0 for none
-washout_start = 60;      // where you would like the washout to start in mm from root
-washout_pivot_perc = 25; // Where the washout pivot point is percent from LE
+washout_start = 0;       // where you would like the washout to start in mm from root
+washout_pivot_perc = 28; // Where the washout pivot point is percent from LE
 //******//
 
 add_inner_grid = true; // true if you want to add the inner grid for 3d printing
 
-grid_mode = 2;           // Grid mode 1=diamond 2= spar and cross spars
-create_rib_voids = true; // add holes to the ribs to decrease weight
+grid_mode = 1;            // Grid mode 1=diamond 2= spar and cross spars
+create_rib_voids = false; // add holes to the ribs to decrease weight
+trailing_edge_grid_keepout_mm = 1; // keep ribs/grid this far forward of the local trailing edge
 
 //****************Grid mode 1 settings**********//
-grid_size_factor = 2; // changes the size of the inner grid blocks
+grid_size_factor = 5.6; // changes the size of the inner grid blocks
 //******//
 
 //****************Grid mode 2 settings**********//
@@ -77,26 +78,26 @@ rib_offset = 1;   // Offset
 
 //****************Carbon Spar settings**********//
 spar_hole = true;                // Add a spar hole into the wing
-spar_hole_perc = 35;             // Percentage from leading edge
-spar_hole_size = 5;              // Size of the spar hole
-spar_hole_length = 200;          // lenth of the spar in mm
-spar_hole_offset = 4;            // Adjust where the spar is located
+spar_hole_perc = 28;             // Percentage from leading edge
+spar_hole_size = 14.2;           // Size of the spar hole
+spar_hole_length = 1000;         // lenth of the spar in mm
+spar_hole_offset = 5;            // Adjust where the spar is located
 spar_hole_void_clearance = 1; // Clearance for the spar to grid interface(at least double extrusion width is usually needed)
 //******//
 
 //****************Servo settings**********//
 create_servo_void = true; // It is important to check that your servo placement doesnt create any artifacts(You can
 // comment out the CreateWing() function to assist)
-servo_type = 1;           // 1=3.7g 2=5g 3=9g
-servo_dist_root_mm = 100; // servo placement from root
-servo_dist_le_mm = 64;    // servo placement from the leading edge
-servo_rotate_z_deg = -7;  // degrees to rotate on z axis
-servo_dist_depth_mm = 10; // offset the servo into or out of the wing till you dont see red
+servo_type = 4;           // 1=3.7g 2=5g 3=9g 4=KST X10 Mini
+servo_dist_root_mm = 250; // servo placement from root
+servo_dist_le_mm = 185;   // servo placement from the leading edge
+servo_rotate_z_deg = -2;  // degrees to rotate on z axis
+servo_dist_depth_mm = 0;  // offset the servo into or out of the wing till you dont see red
 servo_show = false;       // for debugging only. Show the servo for easier placement
 //******//
 
 //****************Aileron settings**********//
-create_aileron = true; // Create an Aileron
+create_aileron = false; // Create an Aileron
 aileron_root_width = 30;    //The aileron width from the TE on the root side
 aileron_tip_width = 30;    //The aileron width from the TE on the tip side
 aileron_length = 100;      //How long to make the aileron
@@ -178,12 +179,17 @@ module main()
                                             {
                                                 9gServoVoid();
                                             }
+                                            else if (servo_type == 4)
+                                            {
+                                                KSTX10MiniServoVoid();
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                         CreateGridVoid();
+                        TrailingEdgeGridKeepoutVoid();
                     }
                 }
             }
@@ -211,8 +217,34 @@ module main()
                     {
                         9gServo();
                     }
+                    else if (servo_type == 4)
+                    {
+                        KSTX10MiniServo();
+                    }
                 }
             }
+        }
+    }
+}
+
+function TrailingEdgeXAtPosition(z_location) =
+    let(chord = (wing_mode == 1) ? ChordLengthAtPosition(z_location)
+                                 : ChordLengthAtEllipsePosition((wing_mm + 0.1), wing_root_chord_mm, z_location))
+        wing_root_chord_mm * (wing_center_line_perc / 100) + chord * (1 - wing_center_line_perc / 100);
+
+module TrailingEdgeGridKeepoutVoid()
+{
+    if (trailing_edge_grid_keepout_mm > 0)
+    {
+        y_size = wing_root_chord_mm * 2;
+        x_size = wing_root_chord_mm * 2;
+        z_pad = 1;
+        hull()
+        {
+            translate([ TrailingEdgeXAtPosition(0) - trailing_edge_grid_keepout_mm, -y_size / 2, -z_pad ])
+                cube([ x_size, y_size, z_pad * 2 ]);
+            translate([ TrailingEdgeXAtPosition(wing_mm) - trailing_edge_grid_keepout_mm, -y_size / 2, wing_mm - z_pad ])
+                cube([ x_size, y_size, z_pad * 2 ]);
         }
     }
 }
@@ -252,6 +284,11 @@ else
             {
                 9gServo();
                 //9gServoVoid();
+            }
+            else if (servo_type == 4)
+            {
+                KSTX10MiniServo();
+                //KSTX10MiniServoVoid();
             }
         }
     }
