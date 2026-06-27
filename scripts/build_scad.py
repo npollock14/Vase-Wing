@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,25 @@ def _format_define_value(value: Any) -> str:
     if isinstance(value, str):
         return json.dumps(value)
     return str(value)
+
+
+def _wait_for_nonempty_file(path: Path, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + max(timeout_seconds, 0)
+    last_size = -1
+    stable_checks = 0
+    while time.monotonic() <= deadline:
+        if path.exists():
+            size = path.stat().st_size
+            if size > 0:
+                if size == last_size:
+                    stable_checks += 1
+                else:
+                    stable_checks = 0
+                    last_size = size
+                if stable_checks >= 1:
+                    return True
+        time.sleep(1)
+    return path.exists() and path.stat().st_size > 0
 
 
 def build_scad(config: dict[str, Any], repo_root: Path) -> dict[str, Any]:
@@ -60,16 +80,41 @@ def build_scad(config: dict[str, Any], repo_root: Path) -> dict[str, Any]:
     cmd.append(str(scad))
 
     result["command"] = cmd
-    proc = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)
+    timeout_seconds = float(config.get("openscad_timeout_seconds", 60))
+    try:
+        proc = subprocess.run(
+            cmd, cwd=repo_root, capture_output=True, text=True, timeout=timeout_seconds
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout_path.write_text(exc.stdout or "", encoding="utf-8", errors="replace")
+        stderr_path.write_text(exc.stderr or "", encoding="utf-8", errors="replace")
+        result["stdout"] = str(stdout_path)
+        result["stderr"] = str(stderr_path)
+        result["error"] = f"OpenSCAD timed out after {timeout_seconds:g} seconds"
+        return result
     stdout_path.write_text(proc.stdout, encoding="utf-8", errors="replace")
     stderr_path.write_text(proc.stderr, encoding="utf-8", errors="replace")
 
     result["returncode"] = proc.returncode
     result["stdout"] = str(stdout_path)
     result["stderr"] = str(stderr_path)
-    if proc.returncode != 0:
+    if proc.returncode == 128:
+        wait_seconds = float(config.get("openscad_output_wait_seconds", 180))
+        if _wait_for_nonempty_file(output_stl, wait_seconds):
+            result["returncode_warning"] = (
+                "OpenSCAD returned 128 before the STL finished writing; output was recovered by waiting for the STL."
+            )
+        else:
+            result["error"] = f"OpenSCAD failed with exit code {proc.returncode}"
+            return result
+    elif proc.returncode != 0:
         result["error"] = f"OpenSCAD failed with exit code {proc.returncode}"
         return result
+    else:
+        _wait_for_nonempty_file(
+            output_stl, float(config.get("openscad_output_wait_seconds", 30))
+        )
+
     if not output_stl.exists() or output_stl.stat().st_size == 0:
         result["error"] = "OpenSCAD completed but did not produce a non-empty STL"
         return result

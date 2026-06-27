@@ -31,6 +31,29 @@ Sharp spikes or steps in `actual max X` usually indicate trailing-edge issues.
 The Prusa profile uses a virtual validation bed so wide coupons can be sliced for
 analysis even when they would need rotation or segmentation for real printing.
 
+## One-pass STL and G-code pipeline
+
+Run the current mode 3 wing artifact build, clean the OpenSCAD STL, export G-code,
+and open Prusa G-code Viewer:
+
+```powershell
+python scripts\build_wing_pipeline.py
+```
+
+The default build uses the current LE20 / TE10 / spar-moat 0.6 / leading-entry 0.6 / trailing-entry 0.6 / trailing centerline minimum height 2.0 / centerline samples 64
+settings and writes to `generated/current_wing_gm3_le20_te10_moat0p6_leE0p6_teE0p6_teMin2_cS64_sections39/`.
+
+Useful overrides:
+
+```powershell
+python scripts\build_wing_pipeline.py --leading-threshold-mm 10
+python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 0.6
+python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 0.6 --centerline-trailing-min-airfoil-height-mm 2.5
+python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 0.6 --centerline-chord-samples 512
+python scripts\build_wing_pipeline.py --leading-threshold-mm 20 --no-open-viewer
+python scripts\build_wing_pipeline.py --define mode3_centerline_gap_mm=0.65
+```
+
 ## Known-good slicer baseline
 
 Confirmed by manual PrusaSlicer inspection:

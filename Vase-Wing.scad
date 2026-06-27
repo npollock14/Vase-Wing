@@ -10,6 +10,9 @@ include <lib/openscad-airfoil/n/naca2415.scad>
 af_vec_path_root = airfoil_NACA2415_path();
 af_vec_path_mid = airfoil_NACA2415_path();
 af_vec_path_tip = airfoil_NACA2415_path();
+af_vec_slice_root = airfoil_NACA2415_slice();
+af_vec_slice_mid = airfoil_NACA2415_slice();
+af_vec_slice_tip = airfoil_NACA2415_slice();
 
 // Wing airfoils
 module RootAirfoilPolygon()
@@ -61,12 +64,45 @@ washout_pivot_perc = 28; // Where the washout pivot point is percent from LE
 
 add_inner_grid = true; // true if you want to add the inner grid for 3d printing
 
-grid_mode = 1;            // Grid mode 1=diamond 2= spar and cross spars
+grid_mode = 1;            // Grid mode 1=diamond 2=spar and cross spars 3=airfoil-centered diamond
 create_rib_voids = false; // add holes to the ribs to decrease weight
 trailing_edge_grid_keepout_mm = 1; // keep ribs/grid this far forward of the local trailing edge
 
 //****************Grid mode 1 settings**********//
 grid_size_factor = 5.6; // changes the size of the inner grid blocks
+//******//
+
+//****************Grid mode 3 settings**********//
+mode3_centerline_samples = 28;       // samples used for the airfoil-centered vase seam
+mode3_centerline_gap_mm = slice_ext_width;
+mode3_centerline_le_overshoot_mm = slice_ext_width;
+mode3_centerline_te_overshoot_mm = slice_ext_width;
+mode3_centerline_start_fraction = 0;
+mode3_centerline_end_fraction = 1;
+mode3_centerline_trailing_min_airfoil_height_mm = 2;
+mode3_centerline_chord_samples = 64;
+mode3_skin_clearance_mm = 0.6;       // clearance from the skin for lightening holes
+mode3_lightening_holes = true;       // add spanwise circular rib lightening holes
+mode3_lightening_chord_fractions = [ 0.16, 0.45, 0.62 ];
+mode3_lightening_radius_fraction = 0.35;
+mode3_lightening_min_radius_mm = 3;
+mode3_lightening_max_radius_mm = 10;
+mode3_spar_lightening_keepout_mm = 24;
+mode3_airfoil_sample_tolerance_mm = 1.5;
+//******//
+
+//****************Rib thin-zone settings**********//
+rib_thin_zone_enabled = true;   // remove rib/grid cutters where the airfoil is too thin for vase topology
+rib_min_airfoil_height_mm = 6; // legacy fallback for older overrides
+rib_leading_thin_zone_enabled = true;
+rib_trailing_thin_zone_enabled = true;
+rib_leading_min_airfoil_height_mm = 4;
+rib_trailing_min_airfoil_height_mm = 10;
+rib_skin_clearance_mm = 1.2;
+rib_thin_zone_blend_mm = 2; // legacy fallback for older overrides
+rib_leading_thin_zone_blend_mm = 1;
+rib_trailing_thin_zone_blend_mm = 2;
+rib_thin_zone_chord_samples = 64;
 //******//
 
 //****************Grid mode 2 settings**********//
@@ -83,6 +119,8 @@ spar_hole_size = 14.2;           // Size of the spar hole
 spar_hole_length = 1000;         // lenth of the spar in mm
 spar_hole_offset = 5;            // Adjust where the spar is located
 spar_hole_void_clearance = 1; // Clearance for the spar to grid interface(at least double extrusion width is usually needed)
+spar_rib_no_go_enabled = true; // Keep mode 3 ribs from touching the spar-hole contour in vase mode
+spar_rib_no_go_clearance_mm = 0.6;
 //******//
 
 //****************Servo settings**********//
@@ -131,7 +169,7 @@ module main()
                     {
                         difference()
                         {
-                            if (grid_mode == 1)
+                            if (grid_mode == 1 || grid_mode == 3)
                             {
                                 StructureGrid(wing_mm, wing_root_chord_mm, grid_size_factor);
                             }
@@ -149,6 +187,17 @@ module main()
                                         CreateRibVoids();
                                     }
                                 }
+                                else if (grid_mode == 3)
+                                {
+                                    if (mode3_lightening_holes)
+                                    {
+                                        CreateMode3LighteningVoids();
+                                    }
+                                    if (spar_hole && spar_rib_no_go_enabled)
+                                    {
+                                        CreateMode3SparRibNoGoVoid();
+                                    }
+                                }
                                 else
                                 {
                                     if (create_rib_voids)
@@ -158,7 +207,7 @@ module main()
                                 }
                                 union()
                                 {
-                                    if (spar_hole)
+                                    if (spar_hole && grid_mode != 3)
                                     {
                                         CreateSparVoid();
                                     }
@@ -188,7 +237,18 @@ module main()
                                 }
                             }
                         }
-                        CreateGridVoid();
+                        if (grid_mode == 3)
+                        {
+                            CreateMode3GridVoid();
+                            if (rib_thin_zone_enabled)
+                            {
+                                CreateRibThinZoneKeepout();
+                            }
+                        }
+                        else
+                        {
+                            CreateGridVoid();
+                        }
                         TrailingEdgeGridKeepoutVoid();
                     }
                 }

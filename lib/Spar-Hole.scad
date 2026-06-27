@@ -30,3 +30,12 @@ module CreateSparVoid()
         cube([ spar_hole_size + spar_hole_void_clearance, 100, spar_hole_length ]);
     }
   }
+
+module CreateMode3SparRibNoGoVoid()
+{
+    translate([ 0, spar_hole_offset, 0 ])
+    {
+        color("purple") translate([ spar_hole_perc / 100 * wing_root_chord_mm, 0, 0 ])
+            cylinder(h = spar_hole_length + 10, r = spar_hole_size / 2 + spar_rib_no_go_clearance_mm);
+    }
+}

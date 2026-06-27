@@ -5,7 +5,7 @@ module WashoutSlice(index, current_chord_mm, local_wing_sections)
                                            : WashoutStart(0, local_wing_sections, washout_start, wing_mm);
     washout_deg_frac = washout_deg / (local_wing_sections - washout_start_point);
     washout_deg_amount = (washout_start_point - index) * washout_deg_frac;
-    rotate_point = current_chord_mm * (washout_pivot_perc / 100);
+    rotate_point = washout_pivot_perc;
 
     translate([ rotate_point, 0, 0 ]) rotate(washout_deg_amount) translate([ -rotate_point, 0, 0 ])
 
