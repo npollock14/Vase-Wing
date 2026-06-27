@@ -83,10 +83,18 @@ mode3_centerline_trailing_min_airfoil_height_mm = 2;
 mode3_centerline_chord_samples = 64;
 mode3_skin_clearance_mm = 0.6;       // clearance from the skin for lightening holes
 mode3_lightening_holes = true;       // add spanwise circular rib lightening holes
+mode3_lightening_pattern = 1;        // 0=circular holes, 1=rounded arch slots
 mode3_lightening_chord_fractions = [ 0.16, 0.45, 0.62 ];
 mode3_lightening_radius_fraction = 0.35;
 mode3_lightening_min_radius_mm = 3;
 mode3_lightening_max_radius_mm = 10;
+mode3_arch_slot_width_mm = 6;
+mode3_arch_slot_height_fraction = 0.85;
+mode3_arch_slot_min_height_mm = 5;
+mode3_arch_slot_count = 6;          // generated chordwise arches; 0 uses mode3_lightening_chord_fractions
+mode3_arch_slot_gap_mm = 2;
+mode3_arch_slot_skin_clearance_mm = 2;
+mode3_arch_slot_contour_samples = 10;
 mode3_spar_lightening_keepout_mm = 24;
 mode3_airfoil_sample_tolerance_mm = 1.5;
 //******//
@@ -121,6 +129,9 @@ spar_hole_offset = 5;            // Adjust where the spar is located
 spar_hole_void_clearance = 1; // Clearance for the spar to grid interface(at least double extrusion width is usually needed)
 spar_rib_no_go_enabled = true; // Keep mode 3 ribs from touching the spar-hole contour in vase mode
 spar_rib_no_go_clearance_mm = 0.6;
+mode3_spar_support_stations_enabled = true; // leave periodic rib/grid support stations at the spar
+mode3_spar_support_station_spacing_mm = 125;
+mode3_spar_support_station_width_mm = 12;
 //******//
 
 //****************Servo settings**********//

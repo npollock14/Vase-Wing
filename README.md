@@ -78,7 +78,7 @@ Finally, update the "//Global Variables*//" section. Follow the comments to cust
 For the current mode 3 vase-wing workflow, use the Python pipeline. It exports an STL with OpenSCAD Nightly using `--backend Manifold`, cleans the STL for PrusaSlicer, exports G-code, and opens Prusa G-code Viewer by default.
 
 ```powershell
-python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 2 --centerline-chord-samples 64 --openscad-timeout-seconds 60
+python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 2 --centerline-chord-samples 64 --lightening-pattern arch-slot --spar-support-stations --openscad-timeout-seconds 60
 ```
 
 Useful options:
@@ -87,6 +87,9 @@ Useful options:
 - `--trailing-threshold-mm`: removes rib/grid cutters near the trailing edge where the local airfoil is too thin.
 - `--centerline-trailing-min-airfoil-height-mm`: stops the center divider before the trailing edge gets too thin; default is `2`.
 - `--centerline-chord-samples`: controls centerline chord sampling; the validated default is `64`.
+- `--lightening-pattern`: selects `arch-slot` rounded slots or the previous `circle` lightening cutters.
+- `--spar-support-stations` / `--no-spar-support-stations`: leaves periodic support station bands through the spar moat or uses a continuous moat.
+- `--spar-support-station-spacing-mm` and `--spar-support-station-width-mm`: tune the protected support station spacing and spanwise width.
 - `--no-open-viewer`: skips launching Prusa G-code Viewer after slicing.
 
 Generated artifacts are written under `generated/`, which is intentionally ignored by git.
@@ -97,6 +100,8 @@ Mode 3 is intended to preserve a single continuous vase-mode contour. Internal r
 
 The centerline divider uses the generated airfoil slice table to interpolate the true upper/lower midpoint, then applies the same chord and washout transform as the wing. The wing skin washout pivot is kept in the unscaled 100 mm airfoil coordinate system so the outer chord scale applies exactly once.
 
+The arch-slot lightening pattern removes rib/grid material with elongated rounded windows rather than circular holes. Periodic spar support stations intentionally interrupt the spar no-go moat so the printed grid can transfer load into a 14 mm OD carbon tube at controlled stations instead of touching the spar contour everywhere.
+
 ### LW-PLA weight estimate
 
 PrusaSlicer reports filament volume in the G-code footer. If the profile has no density set, estimate standard PLA mass as:
@@ -105,7 +110,7 @@ PrusaSlicer reports filament volume in the G-code footer. If the profile has no 
 grams = filament_cm3 * 1.24
 ```
 
-For LW-PLA, this project currently uses a quick estimate of 60% lighter than standard PLA:
+For LW-PLA, this project currently uses a quick estimate of 60% lighter than standard PLA. The repo-local PrusaSlicer profile sets `filament_density = 0.496`, and the pipeline summary reports both standard PLA and LW-PLA estimates.
 
 ```text
 lw_pla_grams = standard_pla_grams * 0.40

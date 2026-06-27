@@ -40,8 +40,8 @@ and open Prusa G-code Viewer:
 python scripts\build_wing_pipeline.py
 ```
 
-The default build uses the current LE20 / TE10 / spar-moat 0.6 / leading-entry 0.6 / trailing-entry 0.6 / trailing centerline minimum height 2.0 / centerline samples 64
-settings and writes to `generated/current_wing_gm3_le20_te10_moat0p6_leE0p6_teE0p6_teMin2_cS64_sections39/`.
+The default build uses mode 3 arch-slot lightening, spar support stations, spar-moat 0.6, leading-entry 0.6, trailing-entry 0.6, trailing centerline minimum height 2.0, and centerline samples 64.
+It writes to a generated folder whose name records the thresholds, pattern, and spar-station settings.
 
 Useful overrides:
 
@@ -50,9 +50,13 @@ python scripts\build_wing_pipeline.py --leading-threshold-mm 10
 python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 0.6
 python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 0.6 --centerline-trailing-min-airfoil-height-mm 2.5
 python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 0.6 --centerline-chord-samples 512
+python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 2 --lightening-pattern arch-slot --spar-support-stations
+python scripts\build_wing_pipeline.py --leading-threshold-mm 0.6 --trailing-threshold-mm 2 --lightening-pattern circle --spar-support-stations
 python scripts\build_wing_pipeline.py --leading-threshold-mm 20 --no-open-viewer
 python scripts\build_wing_pipeline.py --define mode3_centerline_gap_mm=0.65
 ```
+
+The pipeline parses the G-code footer and writes `weight_estimate` into `pipeline-summary.json`. The repo-local LW-PLA profile uses `filament_density = 0.496`, matching the current 60% lighter-than-standard-PLA estimate.
 
 ## Known-good slicer baseline
 

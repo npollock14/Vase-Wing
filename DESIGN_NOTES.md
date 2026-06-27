@@ -20,3 +20,29 @@ spar_rib_no_go_clearance_mm = 0.6;
 ```
 
 The nominal spar tube hole stays at `spar_hole_size`. The moat only clears rib/grid material around that hole so ribs stop before they can touch the spar contour.
+
+## Protected Spar Support Stations
+
+The wing can use a 14 mm OD carbon tube as the primary bending spar. Printed LW-PLA should transfer load into that tube at controlled stations, not through random rib endings along the whole spar hole.
+
+Mode 3 support stations intentionally leave periodic bands through the spar no-go moat:
+
+```openscad
+mode3_spar_support_stations_enabled = true;
+mode3_spar_support_station_spacing_mm = 125;
+mode3_spar_support_station_width_mm = 12;
+```
+
+Between stations, the spar moat remains active. At stations, the grid may remain near the spar-hole contour so the final spar hole cut leaves a local printed support ring/saddle. Inspect these stations in the G-code viewer before printing; they are intentional load-transfer features and should not become disconnected islands or uncontrolled T-junctions.
+
+## Arch-Slot Lightening
+
+Arch-slot lightening replaces circular rib holes with elongated rounded windows:
+
+```openscad
+mode3_lightening_pattern = 1; // 0=circular holes, 1=rounded arch slots
+mode3_arch_slot_width_mm = 6;
+mode3_arch_slot_height_fraction = 0.85;
+```
+
+Rounded slots remove more rib/grid material than circles while preserving smoother load paths. They still respect skin clearance, spar keepout, and leading/trailing thin-zone gates.

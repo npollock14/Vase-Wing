@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -10,10 +11,9 @@ from typing import Any
 from build_scad import build_scad, repo_path
 from clean_stl import clean_stl
 from slice_prusa import slice_prusa
+from test_gcode_x_extents import evaluate_extents, parse_layer_extents, write_plot
 
-GENERATED_PROFILE = Path(
-    "generated/current_wing_gridmode3_centered_margin_lightening_sections39/gridmode3_centered_margin_lightening_cli.ini"
-)
+ESTIMATE_RE = re.compile(r"^;\s*([^=]+?)\s*=\s*(.+?)\s*$")
 
 
 def _repo_root() -> Path:
@@ -27,6 +27,74 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _tag_number(value: float) -> str:
     return f"{value:g}".replace("-", "m").replace(".", "p")
+
+
+def _lightening_pattern_value(pattern: str) -> int:
+    return {"circle": 0, "arch-slot": 1}[pattern]
+
+
+def _lightening_pattern_tag(pattern: str) -> str:
+    return {"circle": "circ", "arch-slot": "arch"}[pattern]
+
+
+def _parse_gcode_estimates(path: Path) -> dict[str, float | str]:
+    estimates: dict[str, float | str] = {}
+    if not path.exists():
+        return estimates
+
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = ESTIMATE_RE.match(line.strip())
+        if not match:
+            continue
+        key = match.group(1).strip()
+        value = match.group(2).strip()
+        if key not in {
+            "filament used [mm]",
+            "filament used [cm3]",
+            "total filament used [g]",
+            "filament_density",
+            "filament_type",
+        }:
+            continue
+        out_key = (
+            key.replace(" [", "_")
+            .replace("]", "")
+            .replace(" ", "_")
+            .replace("/", "_")
+            .replace("total_", "reported_total_")
+        )
+        try:
+            estimates[out_key] = float(value)
+        except ValueError:
+            estimates[out_key] = value
+    return estimates
+
+
+def _estimate_weights(config: dict[str, Any], gcode: Path) -> dict[str, Any]:
+    estimates = _parse_gcode_estimates(gcode)
+    filament_cm3 = estimates.get("filament_used_cm3")
+    standard_density = float(config.get("standard_pla_density_g_cm3", 1.24))
+    lw_density = float(
+        config.get(
+            "lw_pla_density_g_cm3",
+            standard_density * float(config.get("lw_pla_weight_factor", 0.4)),
+        )
+    )
+    result: dict[str, Any] = {
+        "gcode_estimates": estimates,
+        "standard_pla_density_g_cm3": standard_density,
+        "lw_pla_density_g_cm3": lw_density,
+    }
+    if isinstance(filament_cm3, float):
+        result.update(
+            {
+                "filament_used_cm3": filament_cm3,
+                "standard_pla_g": filament_cm3 * standard_density,
+                "lw_pla_g": filament_cm3 * lw_density,
+                "lw_pla_savings_percent": 100 * (1 - (lw_density / standard_density)),
+            }
+        )
+    return result
 
 
 def _parse_define(raw_define: str) -> tuple[str, Any]:
@@ -53,13 +121,58 @@ def _parse_define(raw_define: str) -> tuple[str, Any]:
 
 
 def _default_profile(repo_root: Path, config: dict[str, Any]) -> str:
-    generated_profile = repo_root / GENERATED_PROFILE
-    if generated_profile.exists():
-        return str(GENERATED_PROFILE)
     return str(config["prusa_profile"])
 
 
+def _run_x_extent_test(
+    args: argparse.Namespace, config: dict[str, Any], repo_root: Path, output_dir: Path
+) -> dict[str, Any]:
+    if not args.x_extent_test:
+        return {"status": "skipped", "reason": "--no-x-extent-test was supplied"}
+
+    gcode = repo_path(repo_root, config["output_gcode"])
+    rows = parse_layer_extents(gcode)
+    report = evaluate_extents(
+        rows,
+        max_jump_mm=args.max_x_extent_jump_mm,
+        max_local_residual_mm=args.max_x_extent_local_residual_mm,
+        window_layers=args.x_extent_window_layers,
+        ignore_first_layers=args.x_extent_ignore_first_layers,
+        ignore_last_layers=args.x_extent_ignore_last_layers,
+    )
+    report["gcode"] = str(gcode)
+    json_path = output_dir / "x_extent_artifact_test.json"
+    plot_path = output_dir / "x_extent_artifact_test.png"
+    json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    write_plot(rows, report, plot_path)
+    report["json"] = str(json_path)
+    report["plot"] = str(plot_path)
+    return report
+
+
 def _default_name(args: argparse.Namespace) -> str:
+    pattern_tag = f"p{_lightening_pattern_tag(args.lightening_pattern)}"
+    if args.lightening_pattern == "arch-slot":
+        if args.arch_slot_count > 0:
+            pattern_tag = "_".join(
+                [
+                    pattern_tag,
+                    f"ac{args.arch_slot_count}",
+                    f"ag{_tag_number(args.arch_slot_gap_mm)}",
+                    f"clr{_tag_number(args.arch_slot_skin_clearance_mm)}",
+                    f"ah{_tag_number(args.arch_slot_height_fraction)}",
+                    f"amin{_tag_number(args.arch_slot_min_height_mm)}",
+                ]
+            )
+        else:
+            pattern_tag = "_".join(
+                [
+                    pattern_tag,
+                    f"aw{_tag_number(args.arch_slot_width_mm)}",
+                    f"ah{_tag_number(args.arch_slot_height_fraction)}",
+                    f"amin{_tag_number(args.arch_slot_min_height_mm)}",
+                ]
+            )
     return "_".join(
         [
             "gm3",
@@ -70,6 +183,10 @@ def _default_name(args: argparse.Namespace) -> str:
             f"teE{_tag_number(args.te_entry_overshoot_mm)}",
             f"teMin{_tag_number(args.centerline_trailing_min_airfoil_height_mm)}",
             f"cS{args.centerline_chord_samples}",
+            pattern_tag,
+            "ssOff"
+            if not args.spar_support_stations
+            else f"ss{_tag_number(args.spar_support_station_spacing_mm)}x{_tag_number(args.spar_support_station_width_mm)}",
         ]
     )
 
@@ -78,6 +195,7 @@ def _make_config(
     args: argparse.Namespace, repo_root: Path, base_config: dict[str, Any]
 ) -> tuple[dict[str, Any], Path, str]:
     name = args.name or _default_name(args)
+    artifact_stem = name if args.name else "wing"
     output_dir = (
         Path(args.output_dir)
         if args.output_dir
@@ -98,6 +216,17 @@ def _make_config(
         "mode3_centerline_end_fraction": args.centerline_end_fraction,
         "mode3_centerline_trailing_min_airfoil_height_mm": args.centerline_trailing_min_airfoil_height_mm,
         "mode3_centerline_chord_samples": args.centerline_chord_samples,
+        "mode3_lightening_pattern": _lightening_pattern_value(args.lightening_pattern),
+        "mode3_arch_slot_width_mm": args.arch_slot_width_mm,
+        "mode3_arch_slot_height_fraction": args.arch_slot_height_fraction,
+        "mode3_arch_slot_min_height_mm": args.arch_slot_min_height_mm,
+        "mode3_arch_slot_count": args.arch_slot_count,
+        "mode3_arch_slot_gap_mm": args.arch_slot_gap_mm,
+        "mode3_arch_slot_skin_clearance_mm": args.arch_slot_skin_clearance_mm,
+        "mode3_arch_slot_contour_samples": args.arch_slot_contour_samples,
+        "mode3_spar_support_stations_enabled": args.spar_support_stations,
+        "mode3_spar_support_station_spacing_mm": args.spar_support_station_spacing_mm,
+        "mode3_spar_support_station_width_mm": args.spar_support_station_width_mm,
         "rib_thin_zone_enabled": True,
         "rib_leading_thin_zone_enabled": True,
         "rib_trailing_thin_zone_enabled": True,
@@ -111,8 +240,8 @@ def _make_config(
     config.update(
         {
             "prusa_profile": args.profile or _default_profile(repo_root, base_config),
-            "output_stl": str(output_dir / f"{name}.stl"),
-            "output_gcode": str(output_dir / f"{name}.gcode"),
+            "output_stl": str(output_dir / f"{artifact_stem}.stl"),
+            "output_gcode": str(output_dir / f"{artifact_stem}.gcode"),
             "openscad_summary": str(output_dir / "openscad-summary.json"),
             "build_stdout": str(output_dir / "openscad.stdout.txt"),
             "build_stderr": str(output_dir / "openscad.stderr.txt"),
@@ -158,7 +287,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--profile",
-        help="PrusaSlicer profile path. Defaults to the generated CLI profile when present.",
+        help="PrusaSlicer profile path. Defaults to the profile in the base JSON config.",
     )
     parser.add_argument(
         "--output-dir",
@@ -182,6 +311,34 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--centerline-chord-samples", type=int, default=64)
     parser.add_argument("--openscad-timeout-seconds", type=float, default=60)
+    parser.add_argument(
+        "--lightening-pattern",
+        choices=["circle", "arch-slot"],
+        default="arch-slot",
+        help="Mode 3 lightening cutter pattern. 'circle' keeps the previous disk cutters; 'arch-slot' uses rounded slots.",
+    )
+    parser.add_argument("--arch-slot-width-mm", type=float, default=6)
+    parser.add_argument("--arch-slot-height-fraction", type=float, default=0.85)
+    parser.add_argument("--arch-slot-min-height-mm", type=float, default=5)
+    parser.add_argument("--arch-slot-count", type=int, default=6)
+    parser.add_argument("--arch-slot-gap-mm", type=float, default=2)
+    parser.add_argument("--arch-slot-skin-clearance-mm", type=float, default=2)
+    parser.add_argument("--arch-slot-contour-samples", type=int, default=10)
+    parser.add_argument(
+        "--spar-support-stations",
+        dest="spar_support_stations",
+        action="store_true",
+        help="Leave periodic support station bands through the mode 3 spar no-go moat. This is the default.",
+    )
+    parser.add_argument(
+        "--no-spar-support-stations",
+        dest="spar_support_stations",
+        action="store_false",
+        help="Use a continuous spar no-go moat with no support station bands.",
+    )
+    parser.set_defaults(spar_support_stations=True)
+    parser.add_argument("--spar-support-station-spacing-mm", type=float, default=125)
+    parser.add_argument("--spar-support-station-width-mm", type=float, default=12)
     parser.add_argument(
         "--create-servo-void",
         action="store_true",
@@ -209,6 +366,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip ASCII-to-binary STL cleanup before slicing.",
     )
     parser.set_defaults(clean_stl=True)
+    parser.add_argument(
+        "--x-extent-test",
+        dest="x_extent_test",
+        action="store_true",
+        help="Run the fast actual xmin/xmax artifact test after slicing. This is the default.",
+    )
+    parser.add_argument(
+        "--no-x-extent-test",
+        dest="x_extent_test",
+        action="store_false",
+        help="Skip the fast actual xmin/xmax artifact test.",
+    )
+    parser.set_defaults(x_extent_test=True)
+    parser.add_argument("--max-x-extent-jump-mm", type=float, default=2.0)
+    parser.add_argument("--max-x-extent-local-residual-mm", type=float, default=2.0)
+    parser.add_argument("--x-extent-window-layers", type=int, default=9)
+    parser.add_argument("--x-extent-ignore-first-layers", type=int, default=8)
+    parser.add_argument("--x-extent-ignore-last-layers", type=int, default=0)
     parser.add_argument(
         "--viewer-exe",
         help="Path to prusa-gcodeviewer.exe. Defaults to the PrusaSlicer install beside prusa-slicer-console.exe.",
@@ -267,6 +442,46 @@ def main() -> int:
         return 1
     print(f"G-code created: {config['output_gcode']}")
 
+    weight_estimate = _estimate_weights(config, repo_path(repo_root, config["output_gcode"]))
+    if "lw_pla_g" in weight_estimate:
+        print(
+            "Estimated weight: "
+            f"{weight_estimate['lw_pla_g']:.1f} g LW-PLA "
+            f"({weight_estimate['standard_pla_g']:.1f} g standard PLA equivalent)"
+        )
+
+    x_extent_test = _run_x_extent_test(args, config, repo_root, output_dir_abs)
+    if x_extent_test.get("status") == "pass":
+        worst = x_extent_test.get("worst_jumps", [{}])[0]
+        worst_jump = worst.get("jump_mm", 0.0)
+        print(f"X extent artifact test: pass (worst jump {worst_jump:.3f} mm)")
+    elif x_extent_test.get("status") == "skipped":
+        print(f"X extent artifact test skipped: {x_extent_test.get('reason')}")
+    else:
+        print(
+            "X extent artifact test failed: "
+            f"{x_extent_test.get('failure_count')} failures; plot {x_extent_test.get('plot')}",
+            file=sys.stderr,
+        )
+        summary = {
+            "status": "fail",
+            "name": name,
+            "config": str(config_path),
+            "output_dir": str(output_dir_abs),
+            "stl": str(repo_path(repo_root, config["output_stl"])),
+            "gcode": str(repo_path(repo_root, config["output_gcode"])),
+            "build": build,
+            "stl_clean": stl_clean,
+            "slicer": slicer,
+            "x_extent_test": x_extent_test,
+            "weight_estimate": weight_estimate,
+            "viewer": {"status": "skipped", "reason": "x extent artifact test failed"},
+        }
+        summary_path = output_dir_abs / "pipeline-summary.json"
+        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        print(f"Summary: {summary_path}")
+        return 1
+
     viewer = _open_viewer(args, config, repo_root)
     if viewer.get("status") == "pass":
         print(f"Opened Prusa G-code Viewer: {viewer['gcode']}")
@@ -283,6 +498,8 @@ def main() -> int:
         "build": build,
         "stl_clean": stl_clean,
         "slicer": slicer,
+        "x_extent_test": x_extent_test,
+        "weight_estimate": weight_estimate,
         "viewer": viewer,
     }
     summary_path = output_dir_abs / "pipeline-summary.json"

@@ -45,6 +45,12 @@ function airfoil_center_y_at_position(points, distance, tolerance) =
 function airfoil_height_at_position_safe(points, distance, tolerance) =
     let(y_values = y_values_near_x(points, distance, tolerance)) len(y_values) == 0 ? 0 : max(y_values) - min(y_values);
 
+function airfoil_min_y_at_position_safe(points, distance, tolerance) =
+    let(y_values = y_values_near_x(points, distance, tolerance)) len(y_values) == 0 ? 0 : min(y_values);
+
+function airfoil_max_y_at_position_safe(points, distance, tolerance) =
+    let(y_values = y_values_near_x(points, distance, tolerance)) len(y_values) == 0 ? 0 : max(y_values);
+
 function airfoil_slice_clamped_x(slice_points, x_position) =
     clamp_value(x_position, slice_points[0][0], slice_points[len(slice_points) - 1][0]);
 
@@ -117,8 +123,10 @@ function Mode3LighteningRadius(AFPoints, x_position) =
 
 function Mode3SparKeepoutFraction() = mode3_spar_lightening_keepout_mm / max(wing_root_chord_mm, 0.001);
 
-function Mode3HoleClearsSpar(chord_fraction) =
-    !spar_hole || abs(chord_fraction - (spar_hole_perc / 100)) > Mode3SparKeepoutFraction();
+function Mode3HoleClearsSpar(chord_fraction, current_chord_mm, half_width_mm) =
+    !spar_hole ||
+    ((abs(chord_fraction - (spar_hole_perc / 100)) * current_chord_mm) - half_width_mm) >
+        mode3_spar_lightening_keepout_mm;
 
 function RibThinZoneThreshold(min_airfoil_height_mm) =
     min_airfoil_height_mm <= 0 ? 0 : max(min_airfoil_height_mm, (rib_skin_clearance_mm * 2) + slice_ext_width);
@@ -165,6 +173,9 @@ function Mode3LighteningClearsThinZones(AFPoints, current_chord_mm, chord_fracti
         leading_end_fraction = RibThinZoneLeadingEndFraction(AFPoints, current_chord_mm),
         trailing_start_fraction = RibThinZoneTrailingStartFraction(AFPoints, current_chord_mm))
         hole_min_fraction >= leading_end_fraction && hole_max_fraction <= trailing_start_fraction;
+
+    function Mode3LighteningPatternIsArchSlot() = mode3_lightening_pattern == 1;
+function Mode3GeneratedArchSlotsEnabled() = Mode3LighteningPatternIsArchSlot() && mode3_arch_slot_count > 0;
 
 module CamberVoidLE(AFPoints)
 {
@@ -241,7 +252,7 @@ module Mode3LighteningDisk(AFPoints, current_chord_mm, chord_fraction)
     y_position = airfoil_center_y_at_position(AFPoints, x_position, mode3_airfoil_sample_tolerance_mm);
     radius = Mode3LighteningRadius(AFPoints, x_position);
 
-    if (radius > 0 && Mode3HoleClearsSpar(chord_fraction) &&
+    if (radius > 0 && Mode3HoleClearsSpar(chord_fraction, current_chord_mm, radius) &&
         Mode3LighteningClearsThinZones(AFPoints, current_chord_mm, chord_fraction, radius))
     {
         translate([ x_position, y_position, 0 ])
@@ -249,19 +260,149 @@ module Mode3LighteningDisk(AFPoints, current_chord_mm, chord_fraction)
     }
 }
 
+module Mode3LighteningArchSlotAtX(AFPoints, current_chord_mm, x_position, slot_width)
+{
+    chord_fraction = x_position / max(current_chord_mm, 0.001);
+    y_position = airfoil_center_y_at_position(AFPoints, x_position, mode3_airfoil_sample_tolerance_mm);
+    airfoil_height = airfoil_height_at_position_safe(AFPoints, x_position, mode3_airfoil_sample_tolerance_mm);
+    safe_height = airfoil_height - (2 * mode3_skin_clearance_mm);
+    safe_slot_width = max(slot_width, mode3_lightening_min_radius_mm * 2);
+    slot_height = min(safe_height, safe_height * mode3_arch_slot_height_fraction);
+    corner_radius = min(safe_slot_width / 2, slot_height / 2, mode3_lightening_max_radius_mm);
+    half_straight_x = max(0, (safe_slot_width / 2) - corner_radius);
+    half_straight_y = max(0, (slot_height / 2) - corner_radius);
+
+    if (safe_height >= mode3_arch_slot_min_height_mm && corner_radius >= mode3_lightening_min_radius_mm &&
+        Mode3HoleClearsSpar(chord_fraction, current_chord_mm, safe_slot_width / 2) &&
+        Mode3LighteningClearsThinZones(AFPoints, current_chord_mm, chord_fraction, safe_slot_width / 2))
+    {
+        translate([ x_position, y_position, 0 ]) hull()
+        {
+            for (dx = [ -half_straight_x, half_straight_x ])
+            {
+                for (dy = [ -half_straight_y, half_straight_y ])
+                {
+                    translate([ dx, dy, 0 ]) cylinder(h = XandZHeight, r = corner_radius, center = true, $fn = 18);
+                }
+            }
+        }
+    }
+}
+
+module Mode3LighteningArchSlot(AFPoints, current_chord_mm, chord_fraction)
+{
+    Mode3LighteningArchSlotAtX(AFPoints, current_chord_mm, current_chord_mm * chord_fraction,
+                               mode3_arch_slot_width_mm);
+}
+
+function Mode3ContourSlotX(slot_start_x, slot_width, sample_index, sample_count) =
+    slot_start_x + (slot_width * sample_index / max(sample_count, 1));
+
+function Mode3ContourSlotUpperPoint(AFPoints, slot_start_x, slot_width, sample_index, sample_count, clearance) =
+    let(x_position = Mode3ContourSlotX(slot_start_x, slot_width, sample_index, sample_count))
+        [ x_position,
+          airfoil_max_y_at_position_safe(AFPoints, x_position, mode3_airfoil_sample_tolerance_mm) - clearance ];
+
+function Mode3ContourSlotLowerPoint(AFPoints, slot_start_x, slot_width, sample_index, sample_count, clearance) =
+    let(x_position = Mode3ContourSlotX(slot_start_x, slot_width, sample_index, sample_count))
+        [ x_position,
+          airfoil_min_y_at_position_safe(AFPoints, x_position, mode3_airfoil_sample_tolerance_mm) + clearance ];
+
+function Mode3ContourSlotInnerHeight(AFPoints, slot_start_x, slot_width, sample_index, sample_count, clearance) =
+    let(upper = Mode3ContourSlotUpperPoint(AFPoints, slot_start_x, slot_width, sample_index, sample_count, clearance),
+        lower = Mode3ContourSlotLowerPoint(AFPoints, slot_start_x, slot_width, sample_index, sample_count, clearance))
+        upper[1] - lower[1];
+
+module Mode3ContourArchSlotAtX(AFPoints, current_chord_mm, x_position, slot_width)
+{
+    clearance = max(mode3_skin_clearance_mm, mode3_arch_slot_skin_clearance_mm);
+    sample_count = max(2, mode3_arch_slot_contour_samples);
+    slot_start_x = x_position - (slot_width / 2);
+    chord_fraction = x_position / max(current_chord_mm, 0.001);
+    min_inner_height = min([for (sample_index = [0:sample_count])
+                                Mode3ContourSlotInnerHeight(AFPoints, slot_start_x, slot_width, sample_index,
+                                                            sample_count, clearance)]);
+
+    if (slot_width >= mode3_lightening_min_radius_mm * 2 && min_inner_height >= mode3_arch_slot_min_height_mm &&
+        Mode3HoleClearsSpar(chord_fraction, current_chord_mm, slot_width / 2) &&
+        Mode3LighteningClearsThinZones(AFPoints, current_chord_mm, chord_fraction, slot_width / 2))
+    {
+        linear_extrude(height = XandZHeight, center = true, convexity = 10)
+            polygon(points = concat(
+                        [for (sample_index = [0:sample_count])
+                             Mode3ContourSlotUpperPoint(AFPoints, slot_start_x, slot_width, sample_index, sample_count,
+                                                        clearance)],
+                        [for (sample_index = [sample_count:-1:0])
+                             Mode3ContourSlotLowerPoint(AFPoints, slot_start_x, slot_width, sample_index, sample_count,
+                                                        clearance)]));
+    }
+}
+
+module Mode3GeneratedArchSlot(AFPoints, current_chord_mm, slot_index)
+{
+    slot_count = max(1, mode3_arch_slot_count);
+    gap = max(0, mode3_arch_slot_gap_mm);
+    leading_fraction = RibThinZoneLeadingEndFraction(AFPoints, current_chord_mm);
+    trailing_fraction = RibThinZoneTrailingStartFraction(AFPoints, current_chord_mm);
+    safe_start_x = current_chord_mm * leading_fraction;
+    safe_end_x = current_chord_mm * trailing_fraction;
+    spar_x = current_chord_mm * (spar_hole_perc / 100);
+    spar_max_x = spar_x + mode3_spar_lightening_keepout_mm;
+    interval_index = slot_index;
+    interval_count = slot_count;
+    interval_start_x = spar_hole ? max(safe_start_x, spar_max_x) : safe_start_x;
+    interval_width = safe_end_x - interval_start_x;
+    available_width = interval_width - (gap * max(interval_count - 1, 0));
+    slot_width = interval_count <= 0 ? 0 : available_width / interval_count;
+    x_position = interval_start_x + (slot_width / 2) + (interval_index * (slot_width + gap));
+
+    if (slot_width >= mode3_lightening_min_radius_mm * 2)
+    {
+        Mode3ContourArchSlotAtX(AFPoints, current_chord_mm, x_position, slot_width);
+    }
+}
+
+module Mode3LighteningVoid(AFPoints, current_chord_mm, chord_fraction)
+{
+    if (Mode3LighteningPatternIsArchSlot())
+    {
+        Mode3LighteningArchSlot(AFPoints, current_chord_mm, chord_fraction);
+    }
+    else
+    {
+        Mode3LighteningDisk(AFPoints, current_chord_mm, chord_fraction);
+    }
+}
+
 module Mode3LighteningDiskForCurrentAirfoil(i, scale_factor, current_chord_mm, chord_fraction)
 {
     if (i > wing_sections * (tip_airfoil_change_perc / 100))
     {
-        Mode3LighteningDisk(scalePath(af_vec_path_tip, scale_factor), current_chord_mm, chord_fraction);
+        Mode3LighteningVoid(scalePath(af_vec_path_tip, scale_factor), current_chord_mm, chord_fraction);
     }
     else if (i > wing_sections * (center_airfoil_change_perc / 100))
     {
-        Mode3LighteningDisk(scalePath(af_vec_path_mid, scale_factor), current_chord_mm, chord_fraction);
+        Mode3LighteningVoid(scalePath(af_vec_path_mid, scale_factor), current_chord_mm, chord_fraction);
     }
     else
     {
-        Mode3LighteningDisk(scalePath(af_vec_path_root, scale_factor), current_chord_mm, chord_fraction);
+        Mode3LighteningVoid(scalePath(af_vec_path_root, scale_factor), current_chord_mm, chord_fraction);
+    }
+}
+
+module Mode3GeneratedArchSlotForCurrentAirfoil(i, scale_factor, current_chord_mm, slot_index)
+{
+    if (i > wing_sections * (tip_airfoil_change_perc / 100))
+    {
+        Mode3GeneratedArchSlot(scalePath(af_vec_path_tip, scale_factor), current_chord_mm, slot_index);
+    }
+    else if (i > wing_sections * (center_airfoil_change_perc / 100))
+    {
+        Mode3GeneratedArchSlot(scalePath(af_vec_path_mid, scale_factor), current_chord_mm, slot_index);
+    }
+    else
+    {
+        Mode3GeneratedArchSlot(scalePath(af_vec_path_root, scale_factor), current_chord_mm, slot_index);
     }
 }
 
@@ -276,6 +417,18 @@ module Mode3LighteningWashoutDisk(i, scale_factor, current_chord_mm, chord_fract
     translate([ rotate_point, 0, 0 ]) rotate(washout_deg_amount) translate([ -rotate_point, 0, 0 ])
         Mode3LighteningDiskForCurrentAirfoil(i, scale_factor, current_chord_mm, chord_fraction);
 }
+
+    module Mode3GeneratedArchSlotWashout(i, scale_factor, current_chord_mm, slot_index)
+    {
+        washout_start_point = (wing_mode == 1) ? (wing_sections * (washout_start / 100))
+                           : WashoutStart(0, wing_sections, washout_start, wing_mm);
+        washout_deg_frac = washout_deg / (wing_sections - washout_start_point);
+        washout_deg_amount = (washout_start_point - i) * washout_deg_frac;
+        rotate_point = current_chord_mm * (washout_pivot_perc / 100);
+
+        translate([ rotate_point, 0, 0 ]) rotate(washout_deg_amount) translate([ -rotate_point, 0, 0 ])
+        Mode3GeneratedArchSlotForCurrentAirfoil(i, scale_factor, current_chord_mm, slot_index);
+    }
 
 module Mode3LighteningSliceDisk(z_location, i, chord_fraction)
 {
@@ -292,6 +445,24 @@ module Mode3LighteningSliceDisk(z_location, i, chord_fraction)
     else
     {
         Mode3LighteningDiskForCurrentAirfoil(i, scale_factor, current_chord_mm, chord_fraction);
+    }
+}
+
+module Mode3GeneratedArchSlotSlice(z_location, i, slot_index)
+{
+    current_chord_mm = (wing_mode == 1) ? ChordLengthAtIndex(i, wing_sections)
+                                        : ChordLengthAtEllipsePosition((wing_mm + 0.1), wing_root_chord_mm, z_location);
+    scale_factor = current_chord_mm / 100;
+
+    translate([ 0, 0, z_location ]) translate([ -wing_center_line_perc / 100 * current_chord_mm, 0, 0 ])
+        if (washout_deg > 0 && ((wing_mode > 1 && i > WashoutStart(0, wing_sections, washout_start, wing_mm)) ||
+                                (wing_mode == 1 && i > (wing_sections * (washout_start / 100)))))
+    {
+        Mode3GeneratedArchSlotWashout(i, scale_factor, current_chord_mm, slot_index);
+    }
+    else
+    {
+        Mode3GeneratedArchSlotForCurrentAirfoil(i, scale_factor, current_chord_mm, slot_index);
     }
 }
 
@@ -334,9 +505,9 @@ module CreateMode3LighteningVoids()
     wing_section_mm = wing_mm / wing_sections;
     translate([ wing_root_chord_mm * (wing_center_line_perc / 100), 0, 0 ]) union()
     {
-        for (chord_fraction = mode3_lightening_chord_fractions)
+        if (Mode3GeneratedArchSlotsEnabled())
         {
-            if (Mode3HoleClearsSpar(chord_fraction))
+            for (slot_index = [0:mode3_arch_slot_count - 1])
             {
                 for (i = [0:wing_sections - 1])
                 {
@@ -345,8 +516,28 @@ module CreateMode3LighteningVoids()
 
                     hull()
                     {
-                        Mode3LighteningSliceDisk(current_z, i, chord_fraction);
-                        Mode3LighteningSliceDisk(next_z, i + 1, chord_fraction);
+                        Mode3GeneratedArchSlotSlice(current_z, i, slot_index);
+                        Mode3GeneratedArchSlotSlice(next_z, i + 1, slot_index);
+                    }
+                }
+            }
+        }
+        else
+        {
+            for (chord_fraction = mode3_lightening_chord_fractions)
+            {
+                if (Mode3HoleClearsSpar(chord_fraction, wing_root_chord_mm, 0))
+                {
+                    for (i = [0:wing_sections - 1])
+                    {
+                        current_z = (wing_mode == 1) ? wing_section_mm * i : f(i, wing_sections, wing_mm);
+                        next_z = (wing_mode == 1) ? wing_section_mm * (i + 1) : f(i + 1, wing_sections, wing_mm);
+
+                        hull()
+                        {
+                            Mode3LighteningSliceDisk(current_z, i, chord_fraction);
+                            Mode3LighteningSliceDisk(next_z, i + 1, chord_fraction);
+                        }
                     }
                 }
             }

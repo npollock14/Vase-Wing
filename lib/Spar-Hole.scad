@@ -33,9 +33,23 @@ module CreateSparVoid()
 
 module CreateMode3SparRibNoGoVoid()
 {
+    no_go_radius = spar_hole_size / 2 + spar_rib_no_go_clearance_mm;
     translate([ 0, spar_hole_offset, 0 ])
     {
-        color("purple") translate([ spar_hole_perc / 100 * wing_root_chord_mm, 0, 0 ])
-            cylinder(h = spar_hole_length + 10, r = spar_hole_size / 2 + spar_rib_no_go_clearance_mm);
+        color("purple") difference()
+        {
+            translate([ spar_hole_perc / 100 * wing_root_chord_mm, 0, 0 ])
+                cylinder(h = spar_hole_length + 10, r = no_go_radius);
+
+            if (mode3_spar_support_stations_enabled)
+            {
+                for (z_location = [0:mode3_spar_support_station_spacing_mm:spar_hole_length])
+                {
+                    translate([ spar_hole_perc / 100 * wing_root_chord_mm, 0, z_location ])
+                        cube([ no_go_radius * 2 + 2, no_go_radius * 2 + 2, mode3_spar_support_station_width_mm ],
+                             center = true);
+                }
+            }
+        }
     }
 }
